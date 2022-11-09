@@ -523,21 +523,46 @@ double CCSD::Ecc(Matrix updated_t1, Tensor4D t2_updated) {
   return Ecc; 
 }
 
+//creates 3d error tensor
 Tensor3D CCSD::Error(int it, Matrix T1i, Matrix T1i1, Tensor4D T2i, Tensor4D T2i1) {
-  T1i.resize(1,nsm_occ*nsm_vir);
-  T1i1.resize(1,nsm_occ*nsm_vir);
+  //take old (T1i) and newer (T1i1) and resize from matrix of nsm_occxnsm_vir to a vector vt1i and vt1i1
+  Eigen::VectorXd vt1i;
+  Eigen::VectorXd vt1i1;
+  vt1i.setZero(nsm_occ*nsm_vir);
+  vt1i1.setZero(nsm_occ*nsm_vir);
+  //resize error matrix to fit t2 and then t1 vector 
   Err.resize(2*nsm,nsm_occ*nsm_vir+1,nsm_occ*nsm_vir);
   int sum=0;
-  if (it-2 <= 6) {
-   for (int i = 0; i < nsm_occ; i++) {
-     for (int a = 0; a < nsm_vir; a++) {
+  //creating t2 matricies mt2i and mt2i1 from t2 tensors T2i and T2i1 
+  mt2i.resize(nsm_occ*nsm_vir,nsm_occ*nsm_vir);
+  mt2i1.resize(nsm_occ*nsm_vir,nsm_occ*nsm_vir);
+  for (int i = 0; i < nsm_occ; i++) {
+    for (int a = 0; a < nsm_vir; a++) {
       for (int j = 0; j < nsm_occ; j++) {
+        for (int b = 0;b < nsm_vir; b++) {
+          int ia = INDEX(i,a);
+          int jb = INDEX(j,b);
+          mt2i(ia,jb) = T2i(i,j,a,b);
+          mt2i1(ia,jb) = T2i1(i,j,a,b);
+          vt1i(ia) = T1i(i,a);
+          vt1i1(ia)=T1i1(i,a);
+        }
+      }
+    }
+  }
+  //creating error tensors
+  if (it-2 <= 6) {
+    for (int i = 0; i < nsm_occ; i++) {
+      for (int a = 0; a < nsm_vir; a++) {
+        for (int j = 0; j < nsm_occ; j++) {
           for (int b = 0;b < nsm_vir; b++) {
+            Matrix temp(nsm_occ*nsm_vir,nsm_occ*nsm_vir);
             int ia = INDEX(i,a);
             int jb = INDEX(j,b);
-            Err(it-2,ia,jb) = T2i1(i,j,a,b) - T2i(i,j,a,b);
+            temp(ia,jb) = mt2i1(ia,jb) - mt2i(ia,jb);
+            Err(it-2,ia,jb) = temp(ia,jb);
             if (i==0 && a==0) {
-            Err(it-2,nsm_occ*nsm_vir+1,jb) = T1i1(i,a)-T1i(i,a); 
+              Err(it-2,nsm_occ*nsm_vir+1,jb) = vt1i1(jb)-vt1i(jb); 
             }
           }
         }
@@ -545,15 +570,19 @@ Tensor3D CCSD::Error(int it, Matrix T1i, Matrix T1i1, Tensor4D T2i, Tensor4D T2i
     }
   }
   else {
-      for (int i = 0; i < nsm_occ; i++) {
-     for (int a = 0; a < nsm_vir; a++) {
-      for (int j = 0; j < nsm_occ; j++) {
+    for (int i = 0; i < nsm_occ; i++) {
+      for (int a = 0; a < nsm_vir; a++) {
+        for (int j = 0; j < nsm_occ; j++) {
           for (int b = 0;b < nsm_vir; b++) {
+            Matrix temp(nsm_occ*nsm_vir,nsm_occ*nsm_vir);
             int ia = INDEX(i,a);
             int jb = INDEX(j,b);
-            Err(it-9,ia,jb) = T2i1(i,j,a,b) - T2i(i,j,a,b);
+            temp(ia,jb) = mt2i1(ia,jb) - mt2i(ia,jb);
+            Err(it-2,ia,jb) = temp(ia,jb);
             if (i==0 && a==0) {
-            Err(it-9,nsm_occ*nsm_vir+1,jb) = T1i1(i,a)-T1i(i,a);
+              Matrix temp1(1,nsm_occ*nsm_vir);
+              temp1(1,jb) = T1i1(1,jb)-T1i(1,jb);
+              Err(it-2,nsm_occ*nsm_vir+1,jb) = vt1i1(jb)-vt1i(jb); 
             }
           }
         }
@@ -563,64 +592,64 @@ Tensor3D CCSD::Error(int it, Matrix T1i, Matrix T1i1, Tensor4D T2i, Tensor4D T2i
   return Err;
 }
 
-
+//does diis procedure and creates new t amplitudes (disTen) to be used in energy calculation
 Tensor3D CCSD::Sol_Diis(int it) {
   int val = it-1;
   B.resize(it,it);
   B.setZero(it,it);
   for (int x=0;x<it;x++) {
-  for (int y=0;y<it;y++) {
-  for (int i=0; i< nsm_occ; i++) {
-    for (int a=0;a<nsm_vir;a++) {
-      for (int j=0; j< nsm_occ; j++) {
-        for (int b=0;b<nsm_vir;b++) {
-          int ia = INDEX(i,a);
-          int jb = INDEX(j,b);
-          B(x,y) += Err(it,ia,jb)*Err(val,ia,jb);
-          if (i==0 && a==0) {
-            B(x,y)+=Err(it,nsm_occ*nsm_vir+1,jb)*Err(val,nsm_occ*nsm_vir+1,jb);
+    for (int y=0;y<it;y++) {
+      for (int i=0; i< nsm_occ; i++) {
+        for (int a=0;a<nsm_vir;a++) {
+          for (int j=0; j< nsm_occ; j++) {
+            for (int b=0;b<nsm_vir;b++) {
+              int ia = INDEX(i,a);
+              int jb = INDEX(j,b);
+              B(x,y) += Err(it,ia,jb)*Err(val,ia,jb);
+              if (i==0 && a==0) {
+                B(x,y)+=Err(it,nsm_occ*nsm_vir+1,jb)*Err(val,nsm_occ*nsm_vir+1,jb);
+              }
+              B(x,val) = -1;
+              B(y,val) = -1;
+              B(val,x) = -1;
+              B(val,y) = -1;
+            }
           }
-          B(x,val) = -1;
-          B(y,val) = -1;
-          B(val,x) = -1;
-          B(val,y) = -1;
         }
       }
     }
   }
-  }
-  }
-    B(val,val)=0;
-    Eigen::VectorXd C;
-		C.setZero(it);
-		C(it-1) = -1;
-		//cout << "C" << endl;
-		//cout << C << endl; 
-    Eigen::HouseholderQR<Matrix> mat(B);
-		Eigen::VectorXd ans;
-        ans.setZero(it);
-        ans = mat.solve(C);
-        //cout << "ans" << ans << endl;
-    disTen.resize(it,nsm_occ*nsm_vir,nsm_occ*nsm_vir+1);
+  B(val,val)=0;
+  Eigen::VectorXd C;
+	C.setZero(it);
+	C(it-1) = -1;
+	//cout << "C" << endl;
+	//cout << C << endl; 
+  Eigen::HouseholderQR<Matrix> mat(B);
+	Eigen::VectorXd ans;
+  ans.setZero(it);
+  ans = mat.solve(C);
+  //cout << "ans" << ans << endl;
+  disTen.resize(it,nsm_occ*nsm_vir,nsm_occ*nsm_vir+1);
 	for (int i=0; i < it; i++) {
     for (int j=0; j < nsm_occ; j++) {
-          for (int a=0;a<nsm_vir;a++) {
-            int ja = INDEX(j,a);
-            for (int k=0; k <nsm_occ; k++) {
-              for (int b=0;b<nsm_vir;b++) {
-          int kb = INDEX(k,b);
-				disTen(it-2,ja,kb) += ans(i)*Err(it-2,ja,kb);
-        if (j==0 && a==0) {
-        disTen(i,nsm_occ*nsm_vir+1,kb) += Err(i, nsm_occ*nsm_vir+1,kb);
-        }
-              }
+      for (int a=0;a<nsm_vir;a++) {
+        int ja = INDEX(j,a);
+        for (int k=0; k <nsm_occ; k++) {
+          for (int b=0;b<nsm_vir;b++) {
+            int kb = INDEX(k,b);
+				    disTen(it-2,ja,kb) += ans(i)*Err(i,ja,kb);
+            if (j==0 && a==0) {
+              disTen(i,nsm_occ*nsm_vir+1,kb) += Err(i, nsm_occ*nsm_vir+1,kb);
             }
-    }
+          }
+        }
+      }
     }
   }
-
 return disTen;
 }
+//calculates energy from diis procedure using newly created t amplitudes (disten)
 double CCSD::DisEcc(int it) {
   double diisEcc=0;
   double value1=0,value2=0,value3=0;

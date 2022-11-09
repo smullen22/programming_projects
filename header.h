@@ -55,6 +55,8 @@ class CCSD
     Tensor3D Err;
     double diisEcc;
     Matrix B;
+    Matrix mt2i1;
+    Matrix mt2i;
      
     Matrix Hcore_form(const char *file1, const char *file2);
     Matrix coeff_initial(const char *file);
